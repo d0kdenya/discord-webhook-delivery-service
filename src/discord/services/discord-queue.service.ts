@@ -21,7 +21,7 @@ export class DiscordQueueService {
     title: string,
     description: string,
   ): Promise<string> {
-    const destination = await this.destinations.get(channelKey);
+    const destination = this.destinations.get(channelKey);
 
     if (!destination) {
       throw new BadRequestException(`Неизвестный канал: ${channelKey}`);
@@ -41,6 +41,11 @@ export class DiscordQueueService {
     );
 
     const job = await queue.add('send-webhook', payload, {
+      attempts: 5,
+      backoff: {
+        type: 'exponential',
+        delay: 1000,
+      },
       removeOnComplete: {
         count: 1000,
       },

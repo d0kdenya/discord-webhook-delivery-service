@@ -1,9 +1,15 @@
 import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
-import { ChannelQueueResources } from '../interfaces/channel-query-resources.interface';
 import { ConfigService } from '@nestjs/config';
-import { DiscordService } from './discord.service';
-import { Queue, Worker } from 'bullmq';
+import { Queue, UnrecoverableError, Worker } from 'bullmq';
+
+import { ChannelQueueResources } from '../interfaces/channel-query-resources.interface';
 import { DiscordWebhookJob } from '../interfaces/discord-webhook-job.interface';
+
+import { DiscordService } from './discord.service';
+import { DiscordDlqService } from './discord-dlq.service';
+
+import { DiscordRateLimitError } from '../errors/discord-rate-limit.error';
+import { DiscordPermanentError } from '../errors/discord-permanent.error';
 
 @Injectable()
 export class ChannelQueueManagerService implements OnApplicationShutdown {
@@ -14,6 +20,7 @@ export class ChannelQueueManagerService implements OnApplicationShutdown {
   constructor(
     private readonly configService: ConfigService,
     private readonly discordService: DiscordService,
+    private readonly discordDlqService: DiscordDlqService,
   ) {}
 
   async getQueue(channelKey: string): Promise<Queue<DiscordWebhookJob>> {
@@ -48,10 +55,42 @@ export class ChannelQueueManagerService implements OnApplicationShutdown {
         const { webhookUrl, title, description, channelKey } = job.data;
 
         this.logger.log(
-          `Выполняется задача: ${job.id} из канала: ${channelKey}`,
+          `Выполняется задача: ${job.id} из канала: ${channelKey}, попытка: ${job.attemptsMade + 1}`,
         );
 
-        await this.discordService.sendWebhook(webhookUrl, title, description);
+        try {
+          await this.discordService.sendWebhook(webhookUrl, title, description);
+        } catch (error) {
+          if (error instanceof DiscordRateLimitError) {
+            this.logger.warn(
+              `Ограничение по частоте запросов в канале: ${channelKey}. ` +
+                `Повторный запрос через ${error.retryAfterMs} мс`,
+            );
+
+            await worker.rateLimit(error.retryAfterMs);
+
+            throw Worker.RateLimitError();
+          }
+          if (error instanceof DiscordPermanentError) {
+            await this.discordDlqService.add({
+              originalJobId: String(job.id),
+              channelKey,
+              title,
+              description,
+              statusCode: error.statusCode,
+              errorMessage: error.message,
+              attempts: job.attemptsMade + 1,
+              failedAt: new Date().toISOString(),
+            });
+
+            this.logger.error(
+              `Задача ${job.id} из канала ${channelKey} отправлена в DLQ: ${error.message}`,
+            );
+
+            throw new UnrecoverableError(error.message);
+          }
+          throw error;
+        }
       },
       {
         connection,
@@ -69,7 +108,14 @@ export class ChannelQueueManagerService implements OnApplicationShutdown {
 
     worker.on('failed', (job, error) => {
       this.logger.error(
-        `Ошибка выполнения задачи: ${job.id} из канала: ${channelKey} | ${error.message}`,
+        `Ошибка выполнения задачи: ${job?.id ?? 'unknown'} ` +
+          `из канала: ${channelKey} | ${error.message}`,
+      );
+    });
+
+    worker.on('error', (error) => {
+      this.logger.error(
+        `Ошибка воркера канала ${channelKey}: ${error.message}`,
       );
     });
 

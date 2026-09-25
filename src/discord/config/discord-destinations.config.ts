@@ -23,6 +23,5 @@ export function getDiscordDestinations(
       webhookUrl: adminsWebhookUrl,
     });
   }
-
   return destinations;
 }
