@@ -45,13 +45,13 @@ export class ChannelQueueManagerService implements OnApplicationShutdown {
     const worker = new Worker<DiscordWebhookJob>(
       queueName,
       async (job) => {
-        const { title, description, channelKey } = job.data;
+        const { webhookUrl, title, description, channelKey } = job.data;
 
         this.logger.log(
           `Выполняется задача: ${job.id} из канала: ${channelKey}`,
         );
 
-        await this.discordService.sendWebhook(title, description);
+        await this.discordService.sendWebhook(webhookUrl, title, description);
       },
       {
         connection,

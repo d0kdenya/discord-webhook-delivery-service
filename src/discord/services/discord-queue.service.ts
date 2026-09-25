@@ -1,15 +1,44 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DiscordWebhookJob } from '../interfaces/discord-webhook-job.interface';
 import { ChannelQueueManagerService } from './channel-queue-manager.service';
+import { DiscordDestination } from '../interfaces/discord-destination.interface';
+import { ConfigService } from '@nestjs/config';
+import { getDiscordDestinations } from '../config/discord-destinations.config';
 
 @Injectable()
 export class DiscordQueueService {
-  constructor(
-    private readonly channelQueueManager: ChannelQueueManagerService,
-  ) {}
+  private readonly destinations: Map<string, DiscordDestination>;
 
-  async enqueue(payload: DiscordWebhookJob): Promise<string> {
-    const queue = await this.channelQueueManager.getQueue(payload.channelKey);
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly channelQueueManager: ChannelQueueManagerService,
+  ) {
+    this.destinations = getDiscordDestinations(this.configService);
+  }
+
+  async enqueue(
+    channelKey: string,
+    title: string,
+    description: string,
+  ): Promise<string> {
+    const destination = await this.destinations.get(channelKey);
+
+    if (!destination) {
+      throw new BadRequestException(`Неизвестный канал: ${channelKey}`);
+    }
+
+    const { webhookUrl } = destination;
+
+    const payload: DiscordWebhookJob = {
+      channelKey: destination.channelKey,
+      webhookUrl,
+      title,
+      description,
+    };
+
+    const queue = await this.channelQueueManager.getQueue(
+      destination.channelKey,
+    );
 
     const job = await queue.add('send-webhook', payload, {
       removeOnComplete: {
