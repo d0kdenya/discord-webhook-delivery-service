@@ -1,23 +1,16 @@
 import { Module } from '@nestjs/common';
 import { DiscordController } from './discord.controller';
-import { DiscordService } from './discord.service';
-import { DISCORD_WEBHOOK_QUEUE } from './constants/discord-queue.constants';
-import { BullModule } from '@nestjs/bullmq';
-import { DiscordQueueService } from './discord-queue.service';
-import { DiscordWebhookProcessor } from './discord-webhook.processor';
+import { DiscordService } from './services/discord.service';
+import { DiscordQueueService } from './services/discord-queue.service';
+import { ChannelQueueManagerService } from './services/channel-queue-manager.service';
 
 @Module({
-  imports: [
-    BullModule.registerQueue({
-      name: DISCORD_WEBHOOK_QUEUE,
-    }),
-  ],
   controllers: [DiscordController],
   providers: [
     //
     DiscordService,
     DiscordQueueService,
-    DiscordWebhookProcessor,
+    ChannelQueueManagerService,
   ],
 })
 export class DiscordModule {}

@@ -1,8 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { DiscordService } from './discord.service';
 import { SendWebhookDto } from './dto/send-webhook.dto';
 import { ResponseWebhookDto } from './dto/response-webhook.dto';
-import { DiscordQueueService } from './discord-queue.service';
+import { DiscordQueueService } from './services/discord-queue.service';
 
 @Controller('discord')
 export class DiscordController {
@@ -10,15 +9,18 @@ export class DiscordController {
 
   @Post('webhook')
   async sendWebhook(@Body() body: SendWebhookDto): Promise<ResponseWebhookDto> {
-    const { title, description } = body;
+    const { title, description, channelKey } = body;
 
-    await this.discordQueueService.enqueue({
+    const jobId = await this.discordQueueService.enqueue({
+      channelKey,
       title,
       description,
     });
 
     return {
       success: true,
+      jobId,
+      channelKey,
     };
   }
 }
